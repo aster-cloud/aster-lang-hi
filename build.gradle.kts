@@ -74,3 +74,7 @@ tasks.register("verifyLexiconKeywordParity") {
         logger.lifecycle("verifyLexiconKeywordParity: hi-IN.json keyword set matches en-US backbone ✓")
     }
 }
+
+tasks.named("check") {
+    dependsOn("verifyLexiconKeywordParity")
+}
