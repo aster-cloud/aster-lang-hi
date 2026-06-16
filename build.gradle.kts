@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "cloud.aster-lang"
-version = "1.0.1"
+version = "1.0.2"
 
 java {
     toolchain {
@@ -32,7 +32,7 @@ publishing {
 }
 
 dependencies {
-    implementation("cloud.aster-lang:aster-lang-core:1.0.1")
+    implementation("cloud.aster-lang:aster-lang-core:1.0.2")
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.0")
     testImplementation("org.assertj:assertj-core:3.27.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
