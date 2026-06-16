@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      # 共享版本目录（aster-lang-platform，ADR 0012）—— core settings 依赖它，
+      # 必须最先发布到 Maven Local，否则 core 构建解析不到 asterLibs。
+      - uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-platform
+          path: aster-lang-platform
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-core
+          path: aster-lang-core
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # hi 包无变换器、无 en 依赖 —— 只需 platform + core。
+      - name: Publish dependencies to Maven Local
+        run: |
+          cd aster-lang-platform && ./gradlew publishToMavenLocal
+          cd ../aster-lang-core && ./gradlew publishToMavenLocal -x test
+
+      - name: Build & Test
+        run: ./gradlew build verifyLexiconKeywordParity
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

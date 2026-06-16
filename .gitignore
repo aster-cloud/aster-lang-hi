@@ -1,0 +1,10 @@
+# IDE
+.idea/
+*.iml
+
+# Build
+build/
+.gradle/
+
+# CCG workflow scaffolding
+.ccg/
