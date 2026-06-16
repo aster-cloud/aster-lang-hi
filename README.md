@@ -9,7 +9,7 @@ be loaded — and **hot-unloaded** — at runtime alongside `aster-lang-en` / `-
 
 ## What's inside
 
-- `src/main/resources/lexicons/hi-IN.json` — 78 Devanagari keyword translations,
+- `src/main/resources/lexicons/hi-IN.json` — 77 Devanagari keyword translations,
   danda `।` (U+0964) statement-end, `ENGLISH` whitespace mode.
 - `src/main/java/aster/lang/hi/HiInPlugin.java` — the `LexiconPlugin` SPI
   implementation (registered via `META-INF/services`).
@@ -17,6 +17,9 @@ be loaded — and **hot-unloaded** — at runtime alongside `aster-lang-en` / `-
 Hindi equality / comparison use already-implemented keywords (`बराबर` = equals to,
 `से अधिक` = greater than, `से कम` = less than), so **no syntax transformers are
 needed** — this pack is purely lexicon data.
+
+This pack intentionally ships **only** a `LexiconPlugin` (no `VocabularyPlugin`),
+since it contributes lexicon data alone — no domain vocabulary or identifier translations.
 
 Devanagari abugida support (consonant + vowel-sign matras + virama combining marks,
 danda statement-end) lives in `aster-lang-core`'s lexer / canonicalizer
