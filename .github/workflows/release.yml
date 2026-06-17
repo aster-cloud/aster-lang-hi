@@ -46,3 +46,17 @@ jobs:
         run: ./gradlew publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── ui-messages manifest npm 通道（ADR 0018 统一语言包 Phase 1）──
+      # Hindi 界面文案聚合产物走独立 npm 包(@aster-cloud/ui-messages-hi)，不进 JVM jar。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@aster-cloud'
+
+      - name: Publish @aster-cloud/ui-messages-hi to GitHub Packages (npm)
+        working-directory: ui-messages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
