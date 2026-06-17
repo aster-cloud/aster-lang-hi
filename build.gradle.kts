@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     `java-library`
     `maven-publish`
@@ -78,3 +80,52 @@ tasks.register("verifyLexiconKeywordParity") {
 tasks.named("check") {
     dependsOn("verifyLexiconKeywordParity")
 }
+
+/**
+ * exportUiMessages（ADR 0018，统一语言包 Phase 1）：把 hi-IN 的界面文案
+ * `ui-messages/hi-IN.json` 导出为单一 manifest 制品，与 aster-lang-locales 的
+ * 同名任务同构、走独立 npm 通道（不进 JVM jar）。
+ *
+ * 注意：hi-IN 是**部分翻译**（12/38 namespace），缺失的 namespace 由 aster-cloud
+ * 的 deepMergeMessages 在运行时 fallback 到 en——故此处**不强校 namespace parity**，
+ * 只导出 hi 自身覆盖的文案 + manifest（带 sha256 给 KV 版本化缓存 key 用）。
+ */
+val exportUiMessages by tasks.registering {
+    group = "aster"
+    description = "导出 hi-IN ui-messages 为 manifest 制品（ADR 0018 Phase 1）"
+
+    val msgDir = file("src/main/resources/ui-messages")
+    val outDir = layout.buildDirectory.dir("ui-messages")
+    inputs.dir(msgDir).optional()
+    outputs.dir(outDir)
+
+    doLast {
+        val md = MessageDigest.getInstance("SHA-256")
+        val out = outDir.get().asFile
+        out.mkdirs()
+        val files = (msgDir.listFiles { f -> f.extension == "json" }?.toList() ?: emptyList())
+            .sortedBy { it.nameWithoutExtension }
+        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        val entries = files.joinToString(",\n") { f ->
+            val bytes = f.readBytes()
+            md.reset()
+            val sha = md.digest(bytes).joinToString("") { "%02x".format(it) }
+            f.copyTo(out.resolve(f.name), overwrite = true)
+            """    { "id": "${esc(f.nameWithoutExtension)}", "file": "${esc(f.name)}", """ +
+                """"sha256": "$sha", "bytes": ${bytes.size} }"""
+        }
+        out.resolve("ui-messages-manifest.json").writeText(
+            """{
+  "schema": "aster-ui-messages-manifest/v1",
+  "version": "$version",
+  "locales": [
+$entries
+  ]
+}
+"""
+        )
+        logger.lifecycle("exportUiMessages → ${out.absolutePath} (${files.size} locale)")
+    }
+}
+
+tasks.named("build").configure { dependsOn(exportUiMessages) }
