@@ -49,14 +49,24 @@ jobs:
 
       # ── ui-messages manifest npm 通道（ADR 0018 统一语言包 Phase 1）──
       # Hindi 界面文案聚合产物走独立 npm 包(@aster-cloud/ui-messages-hi)，不进 JVM jar。
+      # 发到**公共 npm**（与 @aster-cloud/ui-messages 同 registry），让 aster-cloud
+      # 的 CI + Cloudflare Workers 构建免 GitHub Packages 认证即可消费。
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          registry-url: 'https://npm.pkg.github.com'
+          registry-url: 'https://registry.npmjs.org'
           scope: '@aster-cloud'
 
-      - name: Publish @aster-cloud/ui-messages-hi to GitHub Packages (npm)
+      # npm publish 幂等：同版本已发布时容忍，不拖垮 release。
+      - name: Publish @aster-cloud/ui-messages-hi to public npm
         working-directory: ui-messages
-        run: npm publish
+        run: |
+          if npm publish 2>&1 | tee /tmp/npm.log; then
+            echo "ui-messages-hi published"
+          elif grep -q "cannot publish over the previously published versions" /tmp/npm.log; then
+            echo "ui-messages-hi 同版本已发布，跳过（幂等）"
+          else
+            echo "npm publish 真失败"; exit 1
+          fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
