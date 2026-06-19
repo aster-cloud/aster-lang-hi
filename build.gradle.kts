@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "cloud.aster-lang"
-version = "1.0.3"
+version = "1.0.4"
 
 java {
     toolchain {
@@ -86,9 +86,10 @@ tasks.named("check") {
  * `ui-messages/hi-IN.json` 导出为单一 manifest 制品，与 aster-lang-locales 的
  * 同名任务同构、走独立 npm 通道（不进 JVM jar）。
  *
- * 注意：hi-IN 是**部分翻译**（12/38 namespace），缺失的 namespace 由 aster-cloud
- * 的 deepMergeMessages 在运行时 fallback 到 en——故此处**不强校 namespace parity**，
- * 只导出 hi 自身覆盖的文案 + manifest（带 sha256 给 KV 版本化缓存 key 用）。
+ * 注意：hi-IN 现已**全量翻译**（2153 key，与 en backbone 对齐）。此处仍不强校
+ * namespace parity（历史上 hi 部分翻译时缺失的由 aster-cloud deepMergeMessages
+ * fallback 到 en；全量后无缺口），只导出 hi 文案 + manifest（带 sha256 给 KV 版本化
+ * 缓存 key 用）。
  */
 val exportUiMessages by tasks.registering {
     group = "aster"
