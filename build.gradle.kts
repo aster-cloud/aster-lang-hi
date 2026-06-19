@@ -6,7 +6,14 @@ plugins {
 }
 
 group = "cloud.aster-lang"
-version = "1.0.6"
+// Maven lexicon jar 版本 = JVM 生态 catalog 的 asterLang（当前 1.0.3）。**不**随 ui-messages
+// npm 包的独立 cadence 漂移——曾误把它 bump 到 1.0.6 脱离 catalog asterLang(1.0.3)，导致消费方
+// 按 catalog 解析 aster-lang-hi:1.0.3 但本仓发的是孤儿 1.0.6→core CI parity 解析失败。
+version = "1.0.3"
+
+// ui-messages manifest / npm 包的独立版本（与 Maven jar 解耦，走 npm 发布 cadence）。
+// 与 ui-messages/package.json 的 version 对齐。
+val uiMessagesVersion = "1.0.6"
 
 java {
     toolchain {
@@ -118,7 +125,7 @@ val exportUiMessages by tasks.registering {
         out.resolve("ui-messages-manifest.json").writeText(
             """{
   "schema": "aster-ui-messages-manifest/v1",
-  "version": "$version",
+  "version": "$uiMessagesVersion",
   "locales": [
 $entries
   ]
