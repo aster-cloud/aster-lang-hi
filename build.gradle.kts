@@ -6,10 +6,16 @@ plugins {
 }
 
 group = "cloud.aster-lang"
-// Maven lexicon jar 版本 = JVM 生态 catalog 的 asterLang（当前 1.0.3）。**不**随 ui-messages
-// npm 包的独立 cadence 漂移——曾误把它 bump 到 1.0.6 脱离 catalog asterLang(1.0.3)，导致消费方
-// 按 catalog 解析 aster-lang-hi:1.0.3 但本仓发的是孤儿 1.0.6→core CI parity 解析失败。
-version = "1.0.3"
+
+// 共享版本目录句柄（aster-lang-platform，ADR 0012），与 aster-lang-locales 同构。
+val asterLibs: VersionCatalog =
+    extensions.getByType<VersionCatalogsExtension>().named("asterLibs")
+
+// Maven lexicon jar 版本 = 版本目录的 asterLang（JVM 生态单一版本源，ADR 0012）。
+// **不**硬编码字面量、**不**随 ui-messages npm 包的独立 cadence 漂移——曾误 bump 到
+// 1.0.6 脱离 catalog asterLang，导致消费方按 catalog 解析 aster-lang-hi:1.0.3 但本仓
+// 发的是孤儿 1.0.6→core CI parity 解析失败。从 catalog 取让 Maven jar 永远跟随生态版本。
+version = asterLibs.findVersion("asterLang").get().requiredVersion
 
 // ui-messages manifest / npm 包的独立版本（与 Maven jar 解耦，走 npm 发布 cadence）。
 // 与 ui-messages/package.json 的 version 对齐。
@@ -41,7 +47,7 @@ publishing {
 }
 
 dependencies {
-    implementation("cloud.aster-lang:aster-lang-core:1.0.3")
+    implementation(asterLibs.findLibrary("core").get())
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.0")
     testImplementation("org.assertj:assertj-core:3.27.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
