@@ -122,7 +122,7 @@ jobs:
       # Hindi 界面文案聚合产物走独立 npm 包(@aster-cloud/ui-messages-hi)，不进 JVM jar。
       # 发到**公共 npm**（与 @aster-cloud/ui-messages 同 registry），让 aster-cloud
       # 的 CI + Cloudflare Workers 构建免 GitHub Packages 认证即可消费。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
