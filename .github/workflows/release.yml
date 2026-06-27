@@ -113,10 +113,20 @@ jobs:
       - name: Build & Test
         run: ./gradlew build verifyLexiconKeywordParity
 
-      - name: Publish to GitHub Packages
-        run: ./gradlew publish
+      # 幂等容忍：GH Packages Maven 对已存在 release 版本重发返 409 Conflict。
+      # 把 409 "already exists" 当幂等 no-op，让重跑能自愈（同 locales 逐包发布）。
+      - name: Publish to GitHub Packages (idempotent)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          if ./gradlew publish 2>&1 | tee /tmp/pub.log; then
+            echo "::notice::aster-lang-hi published"
+          elif grep -qiE "received status code 409|already exists|Conflict" /tmp/pub.log; then
+            echo "::notice::该版本已存在 → 幂等跳过"
+          else
+            echo "::error::publish 真失败"; exit 1
+          fi
 
       # ── ui-messages manifest npm 通道（ADR 0018 统一语言包 Phase 1）──
       # Hindi 界面文案聚合产物走独立 npm 包(@aster-cloud/ui-messages-hi)，不进 JVM jar。
