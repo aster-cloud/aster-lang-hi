@@ -17,7 +17,7 @@ dependencyResolutionManagement {
     // 同构，杜绝 hi 包脱离 catalog 漂移（曾因硬编码 1.0.x 引发版本失配）。
     versionCatalogs {
         create("asterLibs") {
-            from("cloud.aster-lang:aster-lang-platform:1.0.8")
+            from("cloud.aster-lang:aster-lang-platform:1.0.9")
         }
     }
 }
