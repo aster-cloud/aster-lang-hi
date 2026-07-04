@@ -90,8 +90,44 @@ tasks.register("verifyLexiconKeywordParity") {
     }
 }
 
+/**
+ * verifyUiMessagesParity（审计 #24 / locales#25）：hi-IN 的 ui-messages namespace 键集
+ * 必须与 en-US backbone 一致——闭合此前的跨仓缺口（locales 的同名门禁只校验 zh/de，
+ * hi 在独立仓故落在门外，en 新增 namespace 会静默把 hi 落下）。翻译值不同正常、键必须相同。
+ * 门禁放在 hi 仓（hi-IN 的属主），对齐 verifyLexiconKeywordParity 的 sibling-checkout 模式：
+ * CI 把 aster-lang-locales 作为 sibling 检出；本地缺 sibling 则跳过（非阻断）。
+ */
+tasks.register("verifyUiMessagesParity") {
+    group = "verification"
+    description = "Ensure hi-IN ui-messages namespace set matches en-US backbone"
+    val ours = file("src/main/resources/ui-messages/hi-IN.json")
+    val enBackbone = file("../aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json")
+    doLast {
+        if (!enBackbone.exists()) {
+            logger.lifecycle("verifyUiMessagesParity: en-US ui-messages backbone not found at ${enBackbone.absolutePath}; skipping (CI checks out aster-lang-locales as a sibling).")
+            return@doLast
+        }
+        val parser = groovy.json.JsonSlurper()
+        @Suppress("UNCHECKED_CAST")
+        val ourNs = (parser.parse(ours) as Map<String, Any>).keys
+        @Suppress("UNCHECKED_CAST")
+        val baseNs = (parser.parse(enBackbone) as Map<String, Any>).keys
+        val missing = baseNs - ourNs
+        val extra = ourNs - baseNs
+        if (missing.isNotEmpty() || extra.isNotEmpty()) {
+            throw GradleException(
+                "verifyUiMessagesParity FAILED (hi-IN vs en-US backbone):\n" +
+                    "  missing in hi-IN: $missing\n" +
+                    "  extra in hi-IN:   $extra\n" +
+                    "Sync the ui-messages namespace set with en-US."
+            )
+        }
+        logger.lifecycle("verifyUiMessagesParity: hi-IN ui-messages (${ourNs.size} namespaces) matches en-US backbone ✓")
+    }
+}
+
 tasks.named("check") {
-    dependsOn("verifyLexiconKeywordParity")
+    dependsOn("verifyLexiconKeywordParity", "verifyUiMessagesParity")
 }
 
 /**
