@@ -103,6 +103,12 @@ tasks.named("check") {
  * namespace parity（历史上 hi 部分翻译时缺失的由 aster-cloud deepMergeMessages
  * fallback 到 en；全量后无缺口），只导出 hi 文案 + manifest（带 sha256 给 KV 版本化
  * 缓存 key 用）。
+ *
+ * 跨仓 parity 缺口（audit #24 Low）：hi 目前**不在** aster-lang-locales 的
+ * `verifyUiMessagesParity` 门禁内——该门禁只校验 zh/de vs en backbone。hi-IN 的
+ * 38 个 ui-messages namespace 今天与 backbone 一致，但**无任何 CI 强制**，故 en
+ * 新增 namespace 会静默把 hi 落下。修复属跨仓、在 aster-lang-locales#25 统筹（给
+ * locales 门禁加一条 hi 分支）；本仓无需改代码，仅此处留痕。
  */
 val exportUiMessages by tasks.registering {
     group = "aster"
