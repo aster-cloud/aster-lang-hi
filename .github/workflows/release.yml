@@ -11,7 +11,11 @@ on:
     inputs:
       version:
         description: 'Maven/catalog 主版本（不含 v；= release-plan ecosystemVersion）'
-        required: true
+        required: false
+        type: string
+      package:
+        description: "填 'ui-messages' 走 npm-only 独立发布，不建 tag/不发 Maven"
+        required: false
         type: string
       artifactIds:
         required: false
@@ -21,13 +25,13 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ github.repository }}-${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+  group: release-${{ github.repository }}-${{ inputs.package && format('npm-{0}', inputs.package) || (inputs.version && format('v{0}', inputs.version) || github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
   # dispatch 路径：仅创建 tag。catalog-derived 版本用 Gradle 解析（不能 sed 字面量）。
   create-tag:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.package != 'ui-messages'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,6 +55,10 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          if [ -z "$VERSION" ]; then
+            echo "::error::workflow_dispatch catalog release requires input 'version' (npm-only uses package=ui-messages)"
+            exit 1
+          fi
           # catalog-derived：version = asterLibs.findVersion("asterLang")。Gradle 解析（单模块根）。
           RESOLVED=$(./gradlew -q properties | sed -n 's/^version: //p' | head -n1)
           if [ "$VERSION" != "$RESOLVED" ]; then
@@ -70,6 +78,61 @@ jobs:
           fi
           git tag "$TAG"
           git push origin "$TAG"
+
+  # npm-only 入口：ui-messages-hi 是 literal version、独立 cadence；不应为了发文案包
+  # 强行推进 catalog v* tag 或重发 Maven lexicon。保持同 workflow 以复用 npm OIDC 身份。
+  publish-ui-messages-npm:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.package == 'ui-messages'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-platform
+          path: aster-lang-platform
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-core
+          path: aster-lang-core
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Publish dependencies to Maven Local
+        run: |
+          cd aster-lang-platform && ./gradlew publishToMavenLocal
+          cd ../aster-lang-core && ./gradlew publishToMavenLocal -x test
+
+      - name: Export ui-messages-hi manifest
+        run: ./gradlew exportUiMessages
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@aster-cloud'
+
+      - name: Publish @aster-cloud/ui-messages-hi to public npm (Trusted Publisher)
+        working-directory: ui-messages
+        run: |
+          set -o pipefail
+          if npm publish --provenance --access public 2>&1 | tee /tmp/npm.log; then
+            echo "ui-messages-hi published"
+          elif grep -q "cannot publish over the previously published versions" /tmp/npm.log; then
+            echo "ui-messages-hi 同版本已发布，跳过（幂等）"
+          else
+            echo "npm publish 真失败"; exit 1
+          fi
 
   publish:
     if: github.event_name == 'push'
