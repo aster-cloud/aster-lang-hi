@@ -18,8 +18,15 @@ val asterLibs: VersionCatalog =
 version = asterLibs.findVersion("asterLang").get().requiredVersion
 
 // ui-messages manifest / npm 包的独立版本（与 Maven jar 解耦，走 npm 发布 cadence）。
-// 与 ui-messages/package.json 的 version 对齐。
-val uiMessagesVersion = "1.0.6"
+// 从 ui-messages/package.json 读取，避免硬编码漂移（组 C 修复：原 1.0.6 落后实际 1.0.9）。
+val uiMessagesPackageJson = projectDir.resolve("ui-messages/package.json")
+val uiMessagesVersion: String = run {
+    @Suppress("UNCHECKED_CAST")
+    val pkg = groovy.json.JsonSlurper().parse(uiMessagesPackageJson) as Map<String, Any>
+    val v = pkg["version"] as? String
+    require(!v.isNullOrBlank()) { "无法从 ${uiMessagesPackageJson} 读取非空 version" }
+    v
+}
 
 java {
     toolchain {
@@ -153,6 +160,8 @@ val exportUiMessages by tasks.registering {
     val msgDir = file("src/main/resources/ui-messages")
     val outDir = layout.buildDirectory.dir("ui-messages")
     inputs.dir(msgDir).optional()
+    // version 来自 package.json → 声明为 input，bump 版本时才会重新导出（否则 up-to-date 留旧 manifest version）。
+    inputs.file(uiMessagesPackageJson)
     outputs.dir(outDir)
 
     doLast {
