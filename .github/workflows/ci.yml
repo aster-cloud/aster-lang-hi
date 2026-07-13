@@ -15,8 +15,72 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+    # 值级词法守门（verify:lexicon-sync）需 gradle 拉跨仓 GitHub Packages。默认
+    # GITHUB_TOKEN 仅当前仓；CROSS_REPO_TOKEN 是 org secret（已被下方 checkout
+    # 使用），此处同样供 gradle credentials + gh api 分支匹配。
+    env:
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+      GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v6
+
+      # 词法值同步守门（High#3）只在 lexicon 相关变更或 main push 时跑：改 hi-IN.json
+      # 的 keyword 值（键集不变但值漂移）verifyLexiconKeywordParity 抓不到，只有下方
+      # verify:lexicon-sync 的 Java↔TS 同 locale 值比对能抓。其余改动跳过这条重链。
+      - name: Detect lexicon-sync relevant changes
+        id: changed
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            lexicon_sync:
+              - '.github/workflows/**'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle/**'
+              - 'gradlew'
+              - 'src/main/resources/lexicons/**/*.json'
+              - 'src/main/resources/META-INF/services/**'
+              - 'src/main/java/**'
+
+      # 跨仓 PR 分支匹配：companion 仓存在同名分支（如 fix/lexicon-hi-guard）时用之，
+      # 否则回退 main。让引入新 keyword（如 APPLY）的语言包 PR 能对 companion core/
+      # locales/ts PR 分支联合验证，而非总拿各自 main（否则 verify 因 backbone 尚无
+      # 该 keyword 而误报 drift）。一次解析全部 sibling ref，避免每仓一个 step。
+      - name: Resolve sibling refs (branch-matched)
+        id: refs
+        shell: bash
+        # head_ref 经 env 传入（不内插进脚本），避免分支名注入（actionlint 安全实践）。
+        env:
+          OWNER: ${{ github.repository_owner }}
+          CANDIDATE: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 单引号 GraphQL 查询串故意不做 shell 展开（变量经 -f 参数传入）。
+          # shellcheck disable=SC2016
+          GQL='query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){name}}}'
+          resolve_ref() {
+            local key="$1" repo="$2" found=""
+            if [ -n "${CANDIDATE:-}" ]; then
+              found="$(gh api graphql \
+                -f owner="$OWNER" -f name="$repo" -f branch="refs/heads/${CANDIDATE}" \
+                -f query="$GQL" \
+                --jq '.data.repository.ref.name // empty' 2>/dev/null || true)"
+            fi
+            if [ -n "$found" ]; then
+              echo "${key}=${CANDIDATE}" >> "$GITHUB_OUTPUT"
+            else
+              echo "${key}=main" >> "$GITHUB_OUTPUT"
+            fi
+            echo "${repo} ref = ${found:-main}"
+          }
+          resolve_ref core_ref aster-lang-core
+          resolve_ref locales_ref aster-lang-locales
+          resolve_ref ts_ref aster-lang-ts
 
       # 共享版本目录（aster-lang-platform，ADR 0012）—— core settings 依赖它，
       # 必须先发布到 Maven Local，否则 publishToMavenLocal 找不到 aster-lang-platform。
@@ -24,7 +88,7 @@ jobs:
         with:
           repository: aster-cloud/aster-lang-platform
           path: aster-lang-platform
-          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
       # 防漂移 gate（ADR 0023 阶段6）：双制品仓，校验 Maven(catalog-derived) + npm。
       - uses: actions/setup-python@v6
@@ -40,7 +104,8 @@ jobs:
         with:
           repository: aster-cloud/aster-lang-core
           path: aster-lang-core
-          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          ref: ${{ steps.refs.outputs.core_ref }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
       - uses: actions/setup-java@v5
         with:
@@ -59,3 +124,57 @@ jobs:
       # hi 包无语法变换器、无 testRuntimeOnly en —— 不需要 checkout/发布 en。
       - name: Build & Test
         run: ./gradlew build verifyLexiconKeywordParity
+
+      # ─── 值级词法同步守门（verify:lexicon-sync）───
+      # exportLexicons 要看到全部 first-party 语言包（en/zh/de + hi）才能校验完整，
+      # 故 checkout+publish locales（en/zh/de）与本仓 hi；再由 TS verify-lexicon-sync
+      # 校验 Java 导出词法表与 TS 内置词法逐 locale 逐字段同值（键集校验之外的值守门）。
+      - name: Checkout aster-lang-locales
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-locales
+          path: aster-lang-locales
+          ref: ${{ steps.refs.outputs.locales_ref }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
+      - name: Checkout aster-lang-ts
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: aster-cloud/aster-lang-ts
+          path: aster-lang-ts
+          ref: ${{ steps.refs.outputs.ts_ref }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
+      - name: Setup pnpm
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: aster-lang-ts/pnpm-lock.yaml
+
+      - name: Build aster-lang-ts
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        working-directory: aster-lang-ts
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Verify lexicon value sync (Java exportLexicons ↔ TS)
+        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # first-party 语言包（en/zh/de + hi）发布到 Maven Local，供 exportLexicons 的
+          # SPI langPacks classpath 发现；否则导出集塌成 [en] 无法校验 hi/zh/de 值。
+          (cd aster-lang-locales && ./gradlew publishToMavenLocal -x test)
+          ./gradlew publishToMavenLocal -x test
+          (cd aster-lang-core && ./gradlew exportLexicons -x test)
+          node aster-lang-ts/dist/scripts/verify-lexicon-sync.js \
+            aster-lang-core/build/generated/lexicons/lexicons.json
