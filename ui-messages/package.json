@@ -1,6 +1,6 @@
 {
   "name": "@aster-cloud/ui-messages-hi",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Hindi (hi-IN) 界面文案 manifest（ADR 0018 统一语言包）。aster-lang-hi 的 ui-messages 导出产物，供 aster-api 启动加载与 aster-cloud 构建期拉取。全量翻译（2153 key，与 en backbone 对齐）。",
   "license": "Apache-2.0",
   "repository": {
