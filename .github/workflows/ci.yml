@@ -51,39 +51,6 @@ jobs:
       # 否则回退 main。让引入新 keyword（如 APPLY）的语言包 PR 能对 companion core/
       # locales/ts PR 分支联合验证，而非总拿各自 main（否则 verify 因 backbone 尚无
       # 该 keyword 而误报 drift）。一次解析全部 sibling ref，避免每仓一个 step。
-      - name: Resolve sibling refs (branch-matched)
-        id: refs
-        shell: bash
-        # head_ref 经 env 传入（不内插进脚本），避免分支名注入（actionlint 安全实践）。
-        env:
-          OWNER: ${{ github.repository_owner }}
-          CANDIDATE: ${{ github.head_ref || github.ref_name }}
-        run: |
-          set -euo pipefail
-          # 单引号 GraphQL 查询串故意不做 shell 展开（变量经 -f 参数传入）。
-          # shellcheck disable=SC2016
-          GQL='query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){name}}}'
-          resolve_ref() {
-            local key="$1" repo="$2" found=""
-            if [ -n "${CANDIDATE:-}" ]; then
-              found="$(gh api graphql \
-                -f owner="$OWNER" -f name="$repo" -f branch="refs/heads/${CANDIDATE}" \
-                -f query="$GQL" \
-                --jq '.data.repository.ref.name // empty' 2>/dev/null || true)"
-            fi
-            if [ -n "$found" ]; then
-              echo "${key}=${CANDIDATE}" >> "$GITHUB_OUTPUT"
-            else
-              echo "${key}=main" >> "$GITHUB_OUTPUT"
-            fi
-            echo "${repo} ref = ${found:-main}"
-          }
-          resolve_ref core_ref aster-lang-core
-          resolve_ref locales_ref aster-lang-locales
-          resolve_ref ts_ref aster-lang-ts
-
-      # 共享版本目录（aster-lang-platform，ADR 0012）—— core settings 依赖它，
-      # 必须先发布到 Maven Local，否则 publishToMavenLocal 找不到 aster-lang-platform。
       - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-platform
@@ -100,11 +67,10 @@ jobs:
               --plan aster-lang-platform/release-plan.json --artifact "$ID" --repo-root .
           done
 
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-core
           path: aster-lang-core
-          ref: ${{ steps.refs.outputs.core_ref }}
           token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
       - uses: actions/setup-java@v5
@@ -131,20 +97,18 @@ jobs:
       # 校验 Java 导出词法表与 TS 内置词法逐 locale 逐字段同值（键集校验之外的值守门）。
       - name: Checkout aster-lang-locales
         if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
-        uses: actions/checkout@v6
+        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-locales
           path: aster-lang-locales
-          ref: ${{ steps.refs.outputs.locales_ref }}
           token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
       - name: Checkout aster-lang-ts
         if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
-        uses: actions/checkout@v6
+        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-ts
           path: aster-lang-ts
-          ref: ${{ steps.refs.outputs.ts_ref }}
           token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
       - name: Setup pnpm
