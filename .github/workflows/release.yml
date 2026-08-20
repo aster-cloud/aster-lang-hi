@@ -42,7 +42,7 @@ jobs:
           fetch-depth: 0
       # catalog 来自 GH Packages 的 platform，settings 只声明 mavenLocal+mavenCentral →
       # 先 checkout platform 并 publishToMavenLocal，本仓 Gradle 才能解析 catalog-derived version。
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-platform
           path: aster-lang-platform
@@ -90,13 +90,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-platform
           path: aster-lang-platform
           token: ${{ secrets.CROSS_REPO_TOKEN }}
 
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-core
           path: aster-lang-core
@@ -149,13 +149,13 @@ jobs:
 
       # 共享版本目录（aster-lang-platform，ADR 0012）—— core settings 依赖它，
       # 必须最先发布到 Maven Local，否则 core 构建解析不到 asterLibs。
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-platform
           path: aster-lang-platform
           token: ${{ secrets.CROSS_REPO_TOKEN }}
 
-      - uses: actions/checkout@v6
+      - uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
         with:
           repository: aster-cloud/aster-lang-core
           path: aster-lang-core
