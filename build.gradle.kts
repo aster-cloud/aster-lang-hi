@@ -108,10 +108,29 @@ tasks.register("verifyUiMessagesParity") {
     group = "verification"
     description = "Ensure hi-IN ui-messages namespace set matches en-US backbone"
     val ours = file("src/main/resources/ui-messages/hi-IN.json")
-    val enBackbone = file("../aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json")
+    // 审计 hi#66：backbone 解析顺序 —— ① -PenUiMessagesBackbone 显式覆盖；
+    // ② CI 嵌套检出（actions/checkout 的 path: 落在 workspace **内**，`../` 永远不可达）；
+    // ③ 本地 monorepo sibling。CI 下三者皆缺 → fail-closed（否则「backbone 缺失」与
+    // 「真实漂移」同样绿灯，门禁结构性失效）；本地缺 sibling 仍非阻断跳过。
+    val backboneRel = "aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json"
+    val overridePath = providers.gradleProperty("enUiMessagesBackbone").orNull
+    val enBackbone = when {
+        overridePath != null -> file(overridePath)
+        file(backboneRel).exists() -> file(backboneRel)          // CI 嵌套检出
+        else -> file("../$backboneRel")                          // 本地 monorepo sibling
+    }
+    val isCi = System.getenv("CI") != null
     doLast {
         if (!enBackbone.exists()) {
-            logger.lifecycle("verifyUiMessagesParity: en-US ui-messages backbone not found at ${enBackbone.absolutePath}; skipping (CI checks out aster-lang-locales as a sibling).")
+            if (isCi) {
+                throw GradleException(
+                    "verifyUiMessagesParity: en-US ui-messages backbone not found at " +
+                        "${enBackbone.absolutePath} — CI must check out aster-lang-locales " +
+                        "(path: aster-lang-locales) before this task, or pass -PenUiMessagesBackbone. " +
+                        "Fail-closed: a missing backbone must not look like a passing gate (hi#66)."
+                )
+            }
+            logger.lifecycle("verifyUiMessagesParity: en-US ui-messages backbone not found at ${enBackbone.absolutePath}; skipping (local checkout without the aster-lang-locales sibling).")
             return@doLast
         }
         val parser = groovy.json.JsonSlurper()
@@ -194,3 +213,8 @@ $entries
 }
 
 tasks.named("build").configure { dependsOn(exportUiMessages) }
+
+// 审计 hi#66：npm prepack 走 exportUiMessages 发布 @aster-cloud/ui-messages-hi——发布物
+// 必须先过 namespace 平价门禁（对齐 aster-lang-locales 的同名 dependsOn 模式），
+// 否则漂移的清单可原样发到 npm。
+exportUiMessages.configure { dependsOn("verifyUiMessagesParity") }
