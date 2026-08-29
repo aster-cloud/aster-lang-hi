@@ -87,6 +87,16 @@ jobs:
         working-directory: aster-lang-core
         run: ./gradlew publishToMavenLocal -x test
 
+      # 审计 hi#66：locales 检出必须在 Build & Test **之前**且无条件——verifyUiMessagesParity
+      # 经 build→check 触发，需要 en-US ui-messages backbone（嵌套路径 aster-lang-locales/）。
+      # 此前该检出在 Build & Test 之后且带条件，门禁在每次 CI 都静默跳过（fail-open）。
+      - name: Checkout aster-lang-locales (ui-messages backbone)
+        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
+        with:
+          repository: aster-cloud/aster-lang-locales
+          path: aster-lang-locales
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
       # hi 包无语法变换器、无 testRuntimeOnly en —— 不需要 checkout/发布 en。
       - name: Build & Test
         run: ./gradlew build verifyLexiconKeywordParity
@@ -95,14 +105,7 @@ jobs:
       # exportLexicons 要看到全部 first-party 语言包（en/zh/de + hi）才能校验完整，
       # 故 checkout+publish locales（en/zh/de）与本仓 hi；再由 TS verify-lexicon-sync
       # 校验 Java 导出词法表与 TS 内置词法逐 locale 逐字段同值（键集校验之外的值守门）。
-      - name: Checkout aster-lang-locales
-        if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
-        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
-        with:
-          repository: aster-cloud/aster-lang-locales
-          path: aster-lang-locales
-          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
-
+      # （locales 已在 Build & Test 前无条件检出，见上；此处不再重复。）
       - name: Checkout aster-lang-ts
         if: github.event_name == 'push' || steps.changed.outputs.lexicon_sync == 'true'
         uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main

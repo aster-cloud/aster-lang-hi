@@ -113,6 +113,14 @@ jobs:
           cd aster-lang-platform && ./gradlew publishToMavenLocal
           cd ../aster-lang-core && ./gradlew publishToMavenLocal -x test
 
+      # 审计 hi#66：exportUiMessages 现依赖 verifyUiMessagesParity，需 en-US backbone。
+      - name: Checkout aster-lang-locales (ui-messages backbone)
+        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
+        with:
+          repository: aster-cloud/aster-lang-locales
+          path: aster-lang-locales
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
       - name: Export ui-messages-hi manifest
         run: ./gradlew exportUiMessages
 
@@ -172,6 +180,14 @@ jobs:
         run: |
           cd aster-lang-platform && ./gradlew publishToMavenLocal
           cd ../aster-lang-core && ./gradlew publishToMavenLocal -x test
+
+      # 审计 hi#66：build→check→verifyUiMessagesParity 需 en-US backbone（CI fail-closed）。
+      - name: Checkout aster-lang-locales (ui-messages backbone)
+        uses: aster-cloud/aster-lang-platform/.github/actions/checkout-sibling@main
+        with:
+          repository: aster-cloud/aster-lang-locales
+          path: aster-lang-locales
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
 
       - name: Build & Test
         run: ./gradlew build verifyLexiconKeywordParity
