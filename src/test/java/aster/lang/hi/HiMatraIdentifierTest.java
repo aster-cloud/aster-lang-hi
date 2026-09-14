@@ -141,7 +141,22 @@ class HiMatraIdentifierTest {
         @Test
         @DisplayName("每个含 matra 的标识符都恰好 lex 成一个完整 IDENT")
         void matraIdentifierIsSingleIntactToken() {
-            String[] idents = {"आयु", "मूल्य", "राशि", "सीमा", "कुल", "आयुपरीक्षण", "वयस्कहै"};
+            // ★必须含**词首即关键词**的样本（परीक्षण / नियमुक）。
+            //   原夹具全部把关键词放在词中（आयुपरीक्षण 里的 पर 前面是 ु），
+            //   于是 isIdentifierChar 的 prevChar 分支先把它拦下，
+            //   nextChar 那侧的 Mn/Mc 判断**永远不是唯一防线**——
+            //   逐个删掉 NON_SPACING_MARK / COMBINING_SPACING_MARK，15 条仍全绿。
+            //
+            //   实测这两类在生产中**各自都 load-bearing**：
+            //     单删 Mc → परीक्षण 退化成 onीक्षण（पर=ON 词内吃掉标识符）
+            //     单删 Mn → 59 个「关键词+Mn+辅音」标识符全被改写
+            //               （नियमुक→Ruleुक、यदिुक→Ifुक）
+            //   两者都静默、不报错。故两类各需一个**词首**样本单独钉住。
+            String[] idents = {
+                "आयु", "मूल्य", "राशि", "सीमा", "कुल", "आयुपरीक्षण", "वयस्कहै",
+                "परीक्षण",   // 词首即关键词 पर(ON)，后随 ी(Mc) —— 钉住 COMBINING_SPACING_MARK
+                "नियमुक",    // 词首即关键词 नियम(RULE)，后随 ु(Mn) —— 钉住 NON_SPACING_MARK
+            };
             for (String id : idents) {
                 assertThat(hasDevanagariMark(id))
                         .as("测试前提：%s 应含天城文组合记号（matra/virama）", id)
