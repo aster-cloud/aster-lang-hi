@@ -1,9 +1,11 @@
 package aster.lang.hi;
 
 import aster.core.canonicalizer.Canonicalizer;
-import aster.core.lexer.Lexer;
-import aster.core.lexer.Token;
-import aster.core.lexer.TokenKind;
+import aster.core.parser.AsterCustomLexer;
+import aster.core.parser.AsterParser;
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.Token;
 import aster.core.lexicon.Lexicon;
 import aster.core.lexicon.LexiconPlugin;
 import org.junit.jupiter.api.BeforeAll;
@@ -12,6 +14,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.ServiceLoader;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +30,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  * **不在组合记号处碎裂**。此前 hi 测试只覆盖了 Canonicalizer 端的最长匹配前缀冒险
  * （प्रतीक्षा vs प्रतीक्षा करें），**没有任何 matra 标识符分词覆盖**——本文件补齐，
  * 对齐 zh 的 conformance 深度（见 aster-lang-core {@code DevanagariLexerTest}）。
+ *
+ * <h2>★本测试曾经是假覆盖（issue #73）</h2>
+ *
+ * <p>原先打的是 {@code aster.core.lexer.Lexer}——那是一份**零生产引用的死代码**，
+ * 已随 core issue #153 删除。真实的 matra 处理在 ANTLR 生成的 {@code AsterLexer}
+ * 及其子类 {@code AsterCustomLexer}（{@code AsterLexer.g4} 的 {@code isDevanagariMark}）。
+ *
+ * <p>这正是 core 仓记录过的同型事故：ADR 0017 的天城文修复打在了错误的词法器上，
+ * 测试一直绿，而**生产引擎对天城文标识符完全不可用**（修复前 {@code राशि} 产生
+ * 4 个 lexError、0 个 token）。测试绿 ≠ 生产对。
+ *
+ * <p>现已迁到生产路径。附带效果：core 下次 bump 版本时不会再因
+ * {@code aster.core.lexer.*} 已删除而编译失败。
  *
  * <p>下面用到的标识符均**非关键词**且富含组合记号：
  * <ul>
@@ -62,6 +78,51 @@ class HiMatraIdentifierTest {
                         || Character.getType(cp) == Character.COMBINING_SPACING_MARK));
     }
 
+    /**
+     * 走**生产路径**词法分析：Canonicalizer（hi→en 关键词翻译）→ ANTLR AsterCustomLexer。
+     *
+     * <p>★这条链才是真实代码执行的路径。原先用的 {@code aster.core.lexer.Lexer}
+     * 是零引用死代码，对它的断言无论多严格，都证明不了生产行为。
+     *
+     * @return 默认通道的 token（不含 EOF——EOF 由 {@link #lexWithEof} 单独提供）
+     */
+    private static List<Token> lex(String source) {
+        String canonical = new Canonicalizer(lexicon).canonicalize(source);
+        AsterCustomLexer lexer = new AsterCustomLexer(CharStreams.fromString(canonical));
+        CommonTokenStream stream = new CommonTokenStream(lexer);
+        stream.fill();
+        List<Token> out = new ArrayList<>();
+        for (Token t : stream.getTokens()) {
+            if (t.getChannel() == Token.DEFAULT_CHANNEL && t.getType() != Token.EOF) {
+                out.add(t);
+            }
+        }
+        return out;
+    }
+
+    /** 同 {@link #lex}，但保留末尾 EOF（用于断言 token 流以 EOF 收尾）。 */
+    private static List<Token> lexWithEof(String source) {
+        String canonical = new Canonicalizer(lexicon).canonicalize(source);
+        AsterCustomLexer lexer = new AsterCustomLexer(CharStreams.fromString(canonical));
+        CommonTokenStream stream = new CommonTokenStream(lexer);
+        stream.fill();
+        List<Token> out = new ArrayList<>();
+        for (Token t : stream.getTokens()) {
+            if (t.getChannel() == Token.DEFAULT_CHANNEL) out.add(t);
+        }
+        return out;
+    }
+
+    /** token 文本（ANTLR 的 getText()，对应旧 API 的 value()）。 */
+    private static String text(Token t) {
+        return t.getText();
+    }
+
+    /** 是否为 IDENT。 */
+    private static boolean isIdent(Token t) {
+        return t.getType() == AsterParser.IDENT;
+    }
+
     /** token 文本是否以组合记号开头——若为 true 则说明词在 matra 处被切碎（游离记号成头）。 */
     private static boolean startsWithMark(String v) {
         if (v == null || v.isEmpty()) return false;
@@ -86,23 +147,23 @@ class HiMatraIdentifierTest {
                         .as("测试前提：%s 应含天城文组合记号（matra/virama）", id)
                         .isTrue();
 
-                List<Token> tokens = Lexer.lex(id, lexicon);
+                List<Token> tokens = lex(id);
 
                 long identCount = tokens.stream()
-                        .filter(t -> t.kind() == TokenKind.IDENT)
+                        .filter(t -> isIdent(t))
                         .count();
                 assertThat(identCount)
                         .as("%s 应恰好 lex 成 1 个 IDENT（非在 matra/virama 处碎成多段）。tokens=%s", id, tokens)
                         .isEqualTo(1);
 
                 boolean intact = tokens.stream()
-                        .anyMatch(t -> id.equals(String.valueOf(t.value())));
+                        .anyMatch(t -> id.equals(text(t)));
                 assertThat(intact)
                         .as("%s 应作为完整标识符出现（组合记号未被剥离/切分）。tokens=%s", id, tokens)
                         .isTrue();
 
                 boolean anyFragmentHead = tokens.stream()
-                        .anyMatch(t -> startsWithMark(String.valueOf(t.value())));
+                        .anyMatch(t -> startsWithMark(text(t)));
                 assertThat(anyFragmentHead)
                         .as("不应有 token 以游离组合记号开头（碎裂特征）。tokens=%s", tokens)
                         .isFalse();
@@ -112,25 +173,28 @@ class HiMatraIdentifierTest {
         @Test
         @DisplayName("空格分隔的多个 matra 标识符互不吞并，各自成一个 IDENT")
         void multipleMatraIdentifiersEachStayOwnToken() {
-            List<Token> tokens = Lexer.lex("आयु मूल्य राशि सीमा कुल", lexicon);
-            long identCount = tokens.stream().filter(t -> t.kind() == TokenKind.IDENT).count();
+            List<Token> tokens = lex("आयु मूल्य राशि सीमा कुल");
+            long identCount = tokens.stream().filter(t -> isIdent(t)).count();
             assertThat(identCount)
                     .as("5 个 matra 标识符应各自成一个 IDENT。tokens=%s", tokens)
                     .isEqualTo(5);
-            assertThat(tokens).noneMatch(t -> startsWithMark(String.valueOf(t.value())));
+            assertThat(tokens).noneMatch(t -> startsWithMark(text(t)));
         }
 
         @Test
         @DisplayName("danda「।」与含 matra 的词分开成 DOT，不被吞进标识符")
         void dandaStaysSeparateFromMatraIdentifier() {
             // आयुपरीक्षण = आ ◌ु य + प र ◌ी क ◌् ष ण（多个组合记号），后接 danda。
-            List<Token> tokens = Lexer.lex("आयुपरीक्षण।", lexicon);
-            assertThat(tokens.get(0).kind()).isEqualTo(TokenKind.IDENT);
-            assertThat(tokens.get(0).value()).isEqualTo("आयुपरीक्षण");
-            assertThat(tokens.get(1).kind())
+            List<Token> tokens = lex("आयुपरीक्षण।");
+            assertThat(tokens.get(0).getType()).isEqualTo(AsterParser.IDENT);
+            assertThat(text(tokens.get(0))).isEqualTo("आयुपरीक्षण");
+            assertThat(tokens.get(1).getType())
                     .as("danda「।」应识别为句末 DOT。tokens=%s", tokens)
-                    .isEqualTo(TokenKind.DOT);
-            assertThat(tokens.get(1).value()).isEqualTo("।");
+                    .isEqualTo(AsterParser.DOT);
+            // ★生产路径先经 Canonicalizer，danda「।」在此已被翻译成英文句点。
+            // 旧测试直接打死 Lexer、不过规范化，所以断言的是原字符。
+            // 关键行为不变：danda 成为**独立的句末 DOT**，没有被吞进标识符。
+            assertThat(text(tokens.get(1))).isEqualTo(".");
         }
     }
 
@@ -215,20 +279,20 @@ class HiMatraIdentifierTest {
         @Test
         @DisplayName("整模块干净 lex：无异常、无 matra 处碎裂、标识符完整")
         void moduleWithMatraIdentifiersLexesCleanly() {
-            List<Token> tokens = Lexer.lex(MODULE, lexicon); // 抛 LexerException 即失败
+            List<Token> tokens = lex(MODULE);
 
             // 没有任何 token 以游离组合记号开头（碎裂特征）。
             assertThat(tokens)
                     .as("模块内不应有词在 matra/virama 处碎裂。tokens=%s", tokens)
-                    .noneMatch(t -> startsWithMark(String.valueOf(t.value())));
+                    .noneMatch(t -> startsWithMark(text(t)));
 
             // module 名（含多个 matra）作为完整 IDENT 出现。
             assertThat(tokens)
-                    .anyMatch(t -> t.kind() == TokenKind.IDENT && "आयुपरीक्षण".equals(String.valueOf(t.value())));
+                    .anyMatch(t -> isIdent(t) && "आयुपरीक्षण".equals(text(t)));
 
             // 参数标识符 आयु（含 matra）两处出现，均为完整 IDENT。
             long ayuCount = tokens.stream()
-                    .filter(t -> t.kind() == TokenKind.IDENT && "आयु".equals(String.valueOf(t.value())))
+                    .filter(t -> isIdent(t) && "आयु".equals(text(t)))
                     .count();
             assertThat(ayuCount)
                     .as("参数 आयु 应作为完整 IDENT 出现 2 次。tokens=%s", tokens)
@@ -238,29 +302,29 @@ class HiMatraIdentifierTest {
         @Test
         @DisplayName("模块内结构记号正确：danda→DOT、सत्य/असत्य→BOOL、缩进块成对")
         void moduleStructuralTokensAreWellFormed() {
-            List<Token> tokens = Lexer.lex(MODULE, lexicon);
+            List<Token> tokens = lexWithEof(MODULE);
 
-            long dots = tokens.stream().filter(t -> t.kind() == TokenKind.DOT).count();
+            long dots = tokens.stream().filter(t -> t.getType() == AsterParser.DOT).count();
             assertThat(dots)
                     .as("3 个 danda「।」应各成一个句末 DOT。tokens=%s", tokens)
                     .isEqualTo(3);
 
             // सत्य=TRUE、असत्य=FALSE 应识别为 BOOL 字面量（证明 lexicon 关键词识别在工作）。
-            long bools = tokens.stream().filter(t -> t.kind() == TokenKind.BOOL).count();
+            long bools = tokens.stream().filter(t -> t.getType() == AsterParser.BOOL_LITERAL).count();
             assertThat(bools)
                     .as("सत्य/असत्य 应各识别为一个 BOOL。tokens=%s", tokens)
                     .isEqualTo(2);
 
             // 缩进块成对（INDENT/DEDENT 数量相等，块结构良构）。
-            long indents = tokens.stream().filter(t -> t.kind() == TokenKind.INDENT).count();
-            long dedents = tokens.stream().filter(t -> t.kind() == TokenKind.DEDENT).count();
+            long indents = tokens.stream().filter(t -> t.getType() == AsterParser.INDENT).count();
+            long dedents = tokens.stream().filter(t -> t.getType() == AsterParser.DEDENT).count();
             assertThat(indents)
                     .as("INDENT/DEDENT 应成对。tokens=%s", tokens)
                     .isEqualTo(dedents);
             assertThat(indents).isGreaterThan(0);
 
             // token 流以 EOF 收尾。
-            assertThat(tokens.get(tokens.size() - 1).kind()).isEqualTo(TokenKind.EOF);
+            assertThat(tokens.get(tokens.size() - 1).getType()).isEqualTo(Token.EOF);
         }
     }
 }
