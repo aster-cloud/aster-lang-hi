@@ -154,8 +154,16 @@ class HiMatraIdentifierTest {
             //   两者都静默、不报错。故两类各需一个**词首**样本单独钉住。
             String[] idents = {
                 "आयु", "मूल्य", "राशि", "सीमा", "कुल", "आयुपरीक्षण", "वयस्कहै",
-                "परीक्षण",   // 词首即关键词 पर(ON)，后随 ी(Mc) —— 钉住 COMBINING_SPACING_MARK
-                "नियमुक",    // 词首即关键词 नियम(RULE)，后随 ु(Mn) —— 钉住 NON_SPACING_MARK
+                // ── next-char 侧：关键词在**词首**，靠后随记号判定 ──
+                "परीक्षण",   // 词首 पर(ON) + ी(Mc) —— 钉住 next-char 的 COMBINING_SPACING_MARK
+                "नियमुक",    // 词首 नियम(RULE) + ु(Mn) —— 钉住 next-char 的 NON_SPACING_MARK
+                // ── prev-char 侧：关键词在**词尾**，靠前驱记号判定 ──
+                //   ★这一侧同样是独立防线，且同样会静默损坏。复审实测：
+                //     只让 prev-char 忽略组合记号（next-char 保持正确），
+                //     15 条全绿，而 आयुपर→आयुon、कीनियम→कीRule 真实损坏。
+                //   我修 next-char 时漏了对称的另一侧——同一模式只修了一半。
+                "आयुपर",    // 词尾 पर(ON)，前驱 ु(Mn) —— 钉住 prev-char 的 Mn
+                "कीनियम",   // 词尾 नियम(RULE)，前驱 ी(Mc) —— 钉住 prev-char 的 Mc
             };
             for (String id : idents) {
                 assertThat(hasDevanagariMark(id))
