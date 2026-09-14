@@ -44,6 +44,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>现已迁到生产路径。附带效果：core 下次 bump 版本时不会再因
  * {@code aster.core.lexer.*} 已删除而编译失败。
  *
+ * <h2>⚠️ 跨仓验证陷阱：改 core 源码后必须 publishToMavenLocal</h2>
+ *
+ * <p>本仓通过 **mavenLocal 的固定版本** 消费 {@code aster-lang-core:1.0.28}，
+ * 没有 {@code includeBuild} 替换。所以在 core 工作树上改了源码却不 publish，
+ * 这里测的**永远是旧 jar**——任何跨仓变异都会静默无效、全绿。
+ *
+ * <p>实测踩过两次：在 core 的**另一个分支**上 publish 后回来跑本测试，
+ * 得到 3 red（因为那个分支没有 matra 修复）；切回正确分支重新 publish 才 15/0。
+ * 同理，验证「撤掉 core 修复是否变红」时，若忘了 publish，会得到「全绿」的
+ * 假结论并误判为测试无判别力。
+ *
+ * <p>判据：跨仓变异后用 {@code javap} 核对字节码，或至少确认 publish 的是
+ * **哪个分支**的产物。
+ *
  * <p>下面用到的标识符均**非关键词**且富含组合记号：
  * <ul>
  *   <li>आयु（age）：含 matra ◌ु</li>
