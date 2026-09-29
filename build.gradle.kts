@@ -65,6 +65,41 @@ tasks.test {
 }
 
 /**
+ * 跨仓 backbone 解析（审计 hi#66 / hi#78）：两条 parity 门禁共用同一解析顺序——
+ * ① `-P<overrideProperty>` 显式覆盖；② CI 嵌套检出（actions/checkout 的 `path:` 落在
+ * workspace **内**，`../` 永远不可达）；③ 本地 monorepo sibling。
+ * 解析在配置期完成、存在性在执行期检查（[backboneOrSkip]），否则 CI 里未检出
+ * backbone 就跑 `gradlew properties` 之类无关任务也会在配置期炸掉。
+ */
+fun resolveBackbone(overrideProperty: String, backboneRel: String): File {
+    val overridePath = providers.gradleProperty(overrideProperty).orNull
+    return when {
+        overridePath != null -> file(overridePath)
+        file(backboneRel).exists() -> file(backboneRel)          // CI 嵌套检出
+        else -> file("../$backboneRel")                          // 本地 monorepo sibling
+    }
+}
+
+/**
+ * backbone 缺失的统一处置：CI 下抛异常 fail-closed（否则「backbone 缺失」与「真实漂移」
+ * 同样绿灯，门禁结构性失效——hi#66 / hi#78 都是这么静默跳过的）；本地缺 sibling 才允许
+ * 非阻断跳过，返回 null 由调用方 `return@doLast`。
+ */
+val isCi = System.getenv("CI") != null
+fun backboneOrSkip(taskName: String, backbone: File, checkoutDir: String, overrideProperty: String): File? {
+    if (backbone.exists()) return backbone
+    if (isCi) {
+        throw GradleException(
+            "$taskName: en-US backbone not found at ${backbone.absolutePath} — CI must check out " +
+                "$checkoutDir (path: $checkoutDir) before this task, or pass -P$overrideProperty. " +
+                "Fail-closed: a missing backbone must not look like a passing gate (hi#66, hi#78)."
+        )
+    }
+    logger.lifecycle("$taskName: en-US backbone not found at ${backbone.absolutePath}; skipping (local checkout without the $checkoutDir sibling).")
+    return null
+}
+
+/**
  * verifyLexiconKeywordParity：hi-IN.json 的 SemanticTokenKind 键集必须与 en-US
  * backbone 一致（翻译值不同是正常的，键必须相同）。与 aster-lang-zh/de 的同名任务
  * 同构，防止印地语包漏键或多键导致跨引擎分歧。
@@ -73,12 +108,9 @@ tasks.register("verifyLexiconKeywordParity") {
     group = "verification"
     description = "Ensure hi-IN.json keyword set matches en-US backbone"
     val ours = file("src/main/resources/lexicons/hi-IN.json")
-    val coreBuiltin = file("../aster-lang-core/src/main/resources/builtin/en-US.json")
+    val enBackbone = resolveBackbone("enLexiconBackbone", "aster-lang-core/src/main/resources/builtin/en-US.json")
     doLast {
-        if (!coreBuiltin.exists()) {
-            logger.lifecycle("verifyLexiconKeywordParity: en-US backbone not found at ${coreBuiltin.absolutePath}; skipping (CI checks out core as a sibling).")
-            return@doLast
-        }
+        val coreBuiltin = backboneOrSkip(name, enBackbone, "aster-lang-core", "enLexiconBackbone") ?: return@doLast
         val mapper = groovy.json.JsonSlurper()
         @Suppress("UNCHECKED_CAST")
         val ourKeys = ((mapper.parse(ours) as Map<String, Any>)["keywords"] as Map<String, Any>).keys
@@ -101,43 +133,21 @@ tasks.register("verifyLexiconKeywordParity") {
  * verifyUiMessagesParity（审计 #24 / locales#25）：hi-IN 的 ui-messages namespace 键集
  * 必须与 en-US backbone 一致——闭合此前的跨仓缺口（locales 的同名门禁只校验 zh/de，
  * hi 在独立仓故落在门外，en 新增 namespace 会静默把 hi 落下）。翻译值不同正常、键必须相同。
- * 门禁放在 hi 仓（hi-IN 的属主），对齐 verifyLexiconKeywordParity 的 sibling-checkout 模式：
- * CI 把 aster-lang-locales 作为 sibling 检出；本地缺 sibling 则跳过（非阻断）。
+ * 门禁放在 hi 仓（hi-IN 的属主），与 verifyLexiconKeywordParity 共用 [resolveBackbone] /
+ * [backboneOrSkip]：CI 嵌套检出 aster-lang-locales 且缺失即失败；本地缺 sibling 则跳过（非阻断）。
  */
 tasks.register("verifyUiMessagesParity") {
     group = "verification"
     description = "Ensure hi-IN ui-messages namespace set matches en-US backbone"
     val ours = file("src/main/resources/ui-messages/hi-IN.json")
-    // 审计 hi#66：backbone 解析顺序 —— ① -PenUiMessagesBackbone 显式覆盖；
-    // ② CI 嵌套检出（actions/checkout 的 path: 落在 workspace **内**，`../` 永远不可达）；
-    // ③ 本地 monorepo sibling。CI 下三者皆缺 → fail-closed（否则「backbone 缺失」与
-    // 「真实漂移」同样绿灯，门禁结构性失效）；本地缺 sibling 仍非阻断跳过。
-    val backboneRel = "aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json"
-    val overridePath = providers.gradleProperty("enUiMessagesBackbone").orNull
-    val enBackbone = when {
-        overridePath != null -> file(overridePath)
-        file(backboneRel).exists() -> file(backboneRel)          // CI 嵌套检出
-        else -> file("../$backboneRel")                          // 本地 monorepo sibling
-    }
-    val isCi = System.getenv("CI") != null
+    val enBackbone = resolveBackbone("enUiMessagesBackbone", "aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json")
     doLast {
-        if (!enBackbone.exists()) {
-            if (isCi) {
-                throw GradleException(
-                    "verifyUiMessagesParity: en-US ui-messages backbone not found at " +
-                        "${enBackbone.absolutePath} — CI must check out aster-lang-locales " +
-                        "(path: aster-lang-locales) before this task, or pass -PenUiMessagesBackbone. " +
-                        "Fail-closed: a missing backbone must not look like a passing gate (hi#66)."
-                )
-            }
-            logger.lifecycle("verifyUiMessagesParity: en-US ui-messages backbone not found at ${enBackbone.absolutePath}; skipping (local checkout without the aster-lang-locales sibling).")
-            return@doLast
-        }
+        val backbone = backboneOrSkip(name, enBackbone, "aster-lang-locales", "enUiMessagesBackbone") ?: return@doLast
         val parser = groovy.json.JsonSlurper()
         @Suppress("UNCHECKED_CAST")
         val ourNs = (parser.parse(ours) as Map<String, Any>).keys
         @Suppress("UNCHECKED_CAST")
-        val baseNs = (parser.parse(enBackbone) as Map<String, Any>).keys
+        val baseNs = (parser.parse(backbone) as Map<String, Any>).keys
         val missing = baseNs - ourNs
         val extra = ourNs - baseNs
         if (missing.isNotEmpty() || extra.isNotEmpty()) {
