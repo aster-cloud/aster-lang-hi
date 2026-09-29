@@ -9,10 +9,17 @@ be loaded — and **hot-unloaded** — at runtime alongside `aster-lang-en` / `-
 
 ## What's inside
 
-- `src/main/resources/lexicons/hi-IN.json` — 77 Devanagari keyword translations,
-  danda `।` (U+0964) statement-end, `ENGLISH` whitespace mode.
+- `src/main/resources/lexicons/hi-IN.json` — Devanagari keyword translations
+  (key set identical to the `en-US` backbone, enforced by
+  `verifyLexiconKeywordParity`), danda `।` (U+0964) statement-end, `ENGLISH`
+  whitespace mode.
 - `src/main/java/aster/lang/hi/HiInPlugin.java` — the `LexiconPlugin` SPI
   implementation (registered via `META-INF/services`).
+- `src/main/resources/ui-messages/hi-IN.json` — Hindi UI messages (namespace
+  set identical to the `en-US` backbone, enforced by `verifyUiMessagesParity`).
+  Published as `@aster-cloud/ui-messages-hi` via `exportUiMessages`; **not**
+  packaged into the jar (ADR 0018). This repo owns `hi-IN` only — no other
+  locale's json may live in that directory.
 
 Hindi equality / comparison use already-implemented keywords (`बराबर` = equals to,
 `से अधिक` = greater than, `से कम` = less than), so **no syntax transformers are
@@ -32,7 +39,12 @@ danda statement-end) lives in `aster-lang-core`'s lexer / canonicalizer
 ```
 
 `verifyLexiconKeywordParity` asserts the `hi-IN.json` `SemanticTokenKind` key set
-matches the `en-US` backbone (translation *values* differ; keys must be identical).
+matches the `en-US` backbone (translation *values* differ; keys must be identical);
+`verifyUiMessagesParity` does the same for the ui-messages namespace set. Both run
+under `check`. Each backbone is resolved as `-PenLexiconBackbone` /
+`-PenUiMessagesBackbone` override → nested CI checkout (`aster-lang-core/`,
+`aster-lang-locales/`) → `../` sibling; when `CI` is set and the backbone is
+missing the task fails instead of skipping.
 
 ## Publish
 

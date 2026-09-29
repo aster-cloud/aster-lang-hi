@@ -169,60 +169,61 @@ tasks.named("check") {
 /**
  * exportUiMessages（ADR 0018，统一语言包 Phase 1）：把 hi-IN 的界面文案
  * `ui-messages/hi-IN.json` 导出为单一 manifest 制品，与 aster-lang-locales 的
- * 同名任务同构、走独立 npm 通道（不进 JVM jar）。
+ * 同名任务同构、走独立 npm 通道（不进 JVM jar，见下方 jar exclude）。
  *
- * 注意：hi-IN 现已**全量翻译**（2153 key，与 en backbone 对齐）。此处仍不强校
- * namespace parity（历史上 hi 部分翻译时缺失的由 aster-cloud deepMergeMessages
- * fallback 到 en；全量后无缺口），只导出 hi 文案 + manifest（带 sha256 给 KV 版本化
- * 缓存 key 用）。
+ * hi-IN 全量翻译，namespace 键集与 en backbone 一致由 verifyUiMessagesParity 保证
+ * （exportUiMessages dependsOn 它）；manifest 带 sha256 给 KV 版本化缓存 key 用。
  *
- * 跨仓 parity 缺口（audit #24 Low）：hi 目前**不在** aster-lang-locales 的
- * `verifyUiMessagesParity` 门禁内——该门禁只校验 zh/de vs en backbone。hi-IN 的
- * 38 个 ui-messages namespace 今天与 backbone 一致，但**无任何 CI 强制**，故 en
- * 新增 namespace 会静默把 hi 落下。修复属跨仓、在 aster-lang-locales#25 统筹（给
- * locales 门禁加一条 hi 分支）；本仓无需改代码，仅此处留痕。
+ * 本仓只拥有 hi-IN：目录里出现其它 locale 的 json 一律视为误提交并拒绝导出——
+ * 审计 hi#77 曾把过期的 en/de/zh 副本随 pin-bump 混入并发到 npm 与 jar，
+ * 与官方 @aster-cloud/ui-messages 同名同路径却缺 204 键。
  */
 val exportUiMessages by tasks.registering {
     group = "aster"
     description = "导出 hi-IN ui-messages 为 manifest 制品（ADR 0018 Phase 1）"
 
     val msgDir = file("src/main/resources/ui-messages")
+    val ours = msgDir.resolve("hi-IN.json")
     val outDir = layout.buildDirectory.dir("ui-messages")
-    inputs.dir(msgDir).optional()
+    inputs.dir(msgDir)
     // version 来自 package.json → 声明为 input，bump 版本时才会重新导出（否则 up-to-date 留旧 manifest version）。
     inputs.file(uiMessagesPackageJson)
     outputs.dir(outDir)
 
     doLast {
-        val md = MessageDigest.getInstance("SHA-256")
+        val strays = msgDir.listFiles { f -> f.extension == "json" && f.name != ours.name }
+            ?.map { it.name }?.sorted().orEmpty()
+        if (strays.isNotEmpty()) {
+            throw GradleException(
+                "exportUiMessages: ${msgDir.path} 只允许 ${ours.name}（hi 仓只拥有 hi-IN，" +
+                    "其它 locale 的真相源在 aster-lang-locales），发现多余文件: $strays"
+            )
+        }
         val out = outDir.get().asFile
         out.mkdirs()
-        val files = (msgDir.listFiles { f -> f.extension == "json" }?.toList() ?: emptyList())
-            .sortedBy { it.nameWithoutExtension }
-        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        val entries = files.joinToString(",\n") { f ->
-            val bytes = f.readBytes()
-            md.reset()
-            val sha = md.digest(bytes).joinToString("") { "%02x".format(it) }
-            f.copyTo(out.resolve(f.name), overwrite = true)
-            """    { "id": "${esc(f.nameWithoutExtension)}", "file": "${esc(f.name)}", """ +
-                """"sha256": "$sha", "bytes": ${bytes.size} }"""
-        }
+        val bytes = ours.readBytes()
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        ours.copyTo(out.resolve(ours.name), overwrite = true)
         out.resolve("ui-messages-manifest.json").writeText(
             """{
   "schema": "aster-ui-messages-manifest/v1",
   "version": "$uiMessagesVersion",
   "locales": [
-$entries
+    { "id": "${ours.nameWithoutExtension}", "file": "${ours.name}", "sha256": "$sha", "bytes": ${bytes.size} }
   ]
 }
 """
         )
-        logger.lifecycle("exportUiMessages → ${out.absolutePath} (${files.size} locale)")
+        logger.lifecycle("exportUiMessages → ${out.absolutePath} (1 locale)")
     }
 }
 
 tasks.named("build").configure { dependsOn(exportUiMessages) }
+
+// ADR 0018：界面文案走独立 npm 通道、不进语言包 JVM jar——aster-api 自带 classpath 副本，
+// 语言包 jar 只提供 lexicon SPI。jar 里再带一份 ui-messages/<locale>.json 与 api 的资源
+// 同名同路径，只会制造 classpath 顺序相关的资源遮蔽（审计 hi#77）。
+tasks.jar { exclude("ui-messages/**") }
 
 // 审计 hi#66：npm prepack 走 exportUiMessages 发布 @aster-cloud/ui-messages-hi——发布物
 // 必须先过 namespace 平价门禁（对齐 aster-lang-locales 的同名 dependsOn 模式），
