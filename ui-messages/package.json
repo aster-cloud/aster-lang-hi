@@ -1,7 +1,7 @@
 {
   "name": "@aster-cloud/ui-messages-hi",
   "version": "1.0.24",
-  "description": "Hindi (hi-IN) 界面文案 manifest（ADR 0018 统一语言包）。aster-lang-hi 的 ui-messages 导出产物，供 aster-api 启动加载与 aster-cloud 构建期拉取。全量翻译（2436 key，与 en backbone 对齐）。",
+  "description": "Hindi (hi-IN) 界面文案 manifest（ADR 0018 统一语言包）。aster-lang-hi 的 ui-messages 导出产物，供 aster-api 启动加载与 aster-cloud 构建期拉取。全量翻译，namespace 键集与 en backbone 一致由 verifyUiMessagesParity 门禁保证。",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -13,9 +13,9 @@
   },
   "files": [
     "ui-messages-manifest.json",
-    "*.json"
+    "hi-IN.json"
   ],
   "scripts": {
-    "prepack": "cd .. && ./gradlew exportUiMessages && cp build/ui-messages/*.json ui-messages/"
+    "prepack": "cd .. && ./gradlew exportUiMessages && cp build/ui-messages/ui-messages-manifest.json build/ui-messages/hi-IN.json ui-messages/"
   }
 }

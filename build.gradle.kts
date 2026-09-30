@@ -65,6 +65,41 @@ tasks.test {
 }
 
 /**
+ * 跨仓 backbone 解析（审计 hi#66 / hi#78）：两条 parity 门禁共用同一解析顺序——
+ * ① `-P<overrideProperty>` 显式覆盖；② CI 嵌套检出（actions/checkout 的 `path:` 落在
+ * workspace **内**，`../` 永远不可达）；③ 本地 monorepo sibling。
+ * 解析在配置期完成、存在性在执行期检查（[backboneOrSkip]），否则 CI 里未检出
+ * backbone 就跑 `gradlew properties` 之类无关任务也会在配置期炸掉。
+ */
+fun resolveBackbone(overrideProperty: String, backboneRel: String): File {
+    val overridePath = providers.gradleProperty(overrideProperty).orNull
+    return when {
+        overridePath != null -> file(overridePath)
+        file(backboneRel).exists() -> file(backboneRel)          // CI 嵌套检出
+        else -> file("../$backboneRel")                          // 本地 monorepo sibling
+    }
+}
+
+/**
+ * backbone 缺失的统一处置：CI 下抛异常 fail-closed（否则「backbone 缺失」与「真实漂移」
+ * 同样绿灯，门禁结构性失效——hi#66 / hi#78 都是这么静默跳过的）；本地缺 sibling 才允许
+ * 非阻断跳过，返回 null 由调用方 `return@doLast`。
+ */
+val isCi = System.getenv("CI") != null
+fun backboneOrSkip(taskName: String, backbone: File, checkoutDir: String, overrideProperty: String): File? {
+    if (backbone.exists()) return backbone
+    if (isCi) {
+        throw GradleException(
+            "$taskName: en-US backbone not found at ${backbone.absolutePath} — CI must check out " +
+                "$checkoutDir (path: $checkoutDir) before this task, or pass -P$overrideProperty. " +
+                "Fail-closed: a missing backbone must not look like a passing gate (hi#66, hi#78)."
+        )
+    }
+    logger.lifecycle("$taskName: en-US backbone not found at ${backbone.absolutePath}; skipping (local checkout without the $checkoutDir sibling).")
+    return null
+}
+
+/**
  * verifyLexiconKeywordParity：hi-IN.json 的 SemanticTokenKind 键集必须与 en-US
  * backbone 一致（翻译值不同是正常的，键必须相同）。与 aster-lang-zh/de 的同名任务
  * 同构，防止印地语包漏键或多键导致跨引擎分歧。
@@ -73,12 +108,9 @@ tasks.register("verifyLexiconKeywordParity") {
     group = "verification"
     description = "Ensure hi-IN.json keyword set matches en-US backbone"
     val ours = file("src/main/resources/lexicons/hi-IN.json")
-    val coreBuiltin = file("../aster-lang-core/src/main/resources/builtin/en-US.json")
+    val enBackbone = resolveBackbone("enLexiconBackbone", "aster-lang-core/src/main/resources/builtin/en-US.json")
     doLast {
-        if (!coreBuiltin.exists()) {
-            logger.lifecycle("verifyLexiconKeywordParity: en-US backbone not found at ${coreBuiltin.absolutePath}; skipping (CI checks out core as a sibling).")
-            return@doLast
-        }
+        val coreBuiltin = backboneOrSkip(name, enBackbone, "aster-lang-core", "enLexiconBackbone") ?: return@doLast
         val mapper = groovy.json.JsonSlurper()
         @Suppress("UNCHECKED_CAST")
         val ourKeys = ((mapper.parse(ours) as Map<String, Any>)["keywords"] as Map<String, Any>).keys
@@ -101,43 +133,21 @@ tasks.register("verifyLexiconKeywordParity") {
  * verifyUiMessagesParity（审计 #24 / locales#25）：hi-IN 的 ui-messages namespace 键集
  * 必须与 en-US backbone 一致——闭合此前的跨仓缺口（locales 的同名门禁只校验 zh/de，
  * hi 在独立仓故落在门外，en 新增 namespace 会静默把 hi 落下）。翻译值不同正常、键必须相同。
- * 门禁放在 hi 仓（hi-IN 的属主），对齐 verifyLexiconKeywordParity 的 sibling-checkout 模式：
- * CI 把 aster-lang-locales 作为 sibling 检出；本地缺 sibling 则跳过（非阻断）。
+ * 门禁放在 hi 仓（hi-IN 的属主），与 verifyLexiconKeywordParity 共用 [resolveBackbone] /
+ * [backboneOrSkip]：CI 嵌套检出 aster-lang-locales 且缺失即失败；本地缺 sibling 则跳过（非阻断）。
  */
 tasks.register("verifyUiMessagesParity") {
     group = "verification"
     description = "Ensure hi-IN ui-messages namespace set matches en-US backbone"
     val ours = file("src/main/resources/ui-messages/hi-IN.json")
-    // 审计 hi#66：backbone 解析顺序 —— ① -PenUiMessagesBackbone 显式覆盖；
-    // ② CI 嵌套检出（actions/checkout 的 path: 落在 workspace **内**，`../` 永远不可达）；
-    // ③ 本地 monorepo sibling。CI 下三者皆缺 → fail-closed（否则「backbone 缺失」与
-    // 「真实漂移」同样绿灯，门禁结构性失效）；本地缺 sibling 仍非阻断跳过。
-    val backboneRel = "aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json"
-    val overridePath = providers.gradleProperty("enUiMessagesBackbone").orNull
-    val enBackbone = when {
-        overridePath != null -> file(overridePath)
-        file(backboneRel).exists() -> file(backboneRel)          // CI 嵌套检出
-        else -> file("../$backboneRel")                          // 本地 monorepo sibling
-    }
-    val isCi = System.getenv("CI") != null
+    val enBackbone = resolveBackbone("enUiMessagesBackbone", "aster-lang-locales/locales/en/src/main/resources/ui-messages/en-US.json")
     doLast {
-        if (!enBackbone.exists()) {
-            if (isCi) {
-                throw GradleException(
-                    "verifyUiMessagesParity: en-US ui-messages backbone not found at " +
-                        "${enBackbone.absolutePath} — CI must check out aster-lang-locales " +
-                        "(path: aster-lang-locales) before this task, or pass -PenUiMessagesBackbone. " +
-                        "Fail-closed: a missing backbone must not look like a passing gate (hi#66)."
-                )
-            }
-            logger.lifecycle("verifyUiMessagesParity: en-US ui-messages backbone not found at ${enBackbone.absolutePath}; skipping (local checkout without the aster-lang-locales sibling).")
-            return@doLast
-        }
+        val backbone = backboneOrSkip(name, enBackbone, "aster-lang-locales", "enUiMessagesBackbone") ?: return@doLast
         val parser = groovy.json.JsonSlurper()
         @Suppress("UNCHECKED_CAST")
         val ourNs = (parser.parse(ours) as Map<String, Any>).keys
         @Suppress("UNCHECKED_CAST")
-        val baseNs = (parser.parse(enBackbone) as Map<String, Any>).keys
+        val baseNs = (parser.parse(backbone) as Map<String, Any>).keys
         val missing = baseNs - ourNs
         val extra = ourNs - baseNs
         if (missing.isNotEmpty() || extra.isNotEmpty()) {
@@ -159,60 +169,61 @@ tasks.named("check") {
 /**
  * exportUiMessages（ADR 0018，统一语言包 Phase 1）：把 hi-IN 的界面文案
  * `ui-messages/hi-IN.json` 导出为单一 manifest 制品，与 aster-lang-locales 的
- * 同名任务同构、走独立 npm 通道（不进 JVM jar）。
+ * 同名任务同构、走独立 npm 通道（不进 JVM jar，见下方 jar exclude）。
  *
- * 注意：hi-IN 现已**全量翻译**（2153 key，与 en backbone 对齐）。此处仍不强校
- * namespace parity（历史上 hi 部分翻译时缺失的由 aster-cloud deepMergeMessages
- * fallback 到 en；全量后无缺口），只导出 hi 文案 + manifest（带 sha256 给 KV 版本化
- * 缓存 key 用）。
+ * hi-IN 全量翻译，namespace 键集与 en backbone 一致由 verifyUiMessagesParity 保证
+ * （exportUiMessages dependsOn 它）；manifest 带 sha256 给 KV 版本化缓存 key 用。
  *
- * 跨仓 parity 缺口（audit #24 Low）：hi 目前**不在** aster-lang-locales 的
- * `verifyUiMessagesParity` 门禁内——该门禁只校验 zh/de vs en backbone。hi-IN 的
- * 38 个 ui-messages namespace 今天与 backbone 一致，但**无任何 CI 强制**，故 en
- * 新增 namespace 会静默把 hi 落下。修复属跨仓、在 aster-lang-locales#25 统筹（给
- * locales 门禁加一条 hi 分支）；本仓无需改代码，仅此处留痕。
+ * 本仓只拥有 hi-IN：目录里出现其它 locale 的 json 一律视为误提交并拒绝导出——
+ * 审计 hi#77 曾把过期的 en/de/zh 副本随 pin-bump 混入并发到 npm 与 jar，
+ * 与官方 @aster-cloud/ui-messages 同名同路径却缺 204 键。
  */
 val exportUiMessages by tasks.registering {
     group = "aster"
     description = "导出 hi-IN ui-messages 为 manifest 制品（ADR 0018 Phase 1）"
 
     val msgDir = file("src/main/resources/ui-messages")
+    val ours = msgDir.resolve("hi-IN.json")
     val outDir = layout.buildDirectory.dir("ui-messages")
-    inputs.dir(msgDir).optional()
+    inputs.dir(msgDir)
     // version 来自 package.json → 声明为 input，bump 版本时才会重新导出（否则 up-to-date 留旧 manifest version）。
     inputs.file(uiMessagesPackageJson)
     outputs.dir(outDir)
 
     doLast {
-        val md = MessageDigest.getInstance("SHA-256")
+        val strays = msgDir.listFiles { f -> f.extension == "json" && f.name != ours.name }
+            ?.map { it.name }?.sorted().orEmpty()
+        if (strays.isNotEmpty()) {
+            throw GradleException(
+                "exportUiMessages: ${msgDir.path} 只允许 ${ours.name}（hi 仓只拥有 hi-IN，" +
+                    "其它 locale 的真相源在 aster-lang-locales），发现多余文件: $strays"
+            )
+        }
         val out = outDir.get().asFile
         out.mkdirs()
-        val files = (msgDir.listFiles { f -> f.extension == "json" }?.toList() ?: emptyList())
-            .sortedBy { it.nameWithoutExtension }
-        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        val entries = files.joinToString(",\n") { f ->
-            val bytes = f.readBytes()
-            md.reset()
-            val sha = md.digest(bytes).joinToString("") { "%02x".format(it) }
-            f.copyTo(out.resolve(f.name), overwrite = true)
-            """    { "id": "${esc(f.nameWithoutExtension)}", "file": "${esc(f.name)}", """ +
-                """"sha256": "$sha", "bytes": ${bytes.size} }"""
-        }
+        val bytes = ours.readBytes()
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        ours.copyTo(out.resolve(ours.name), overwrite = true)
         out.resolve("ui-messages-manifest.json").writeText(
             """{
   "schema": "aster-ui-messages-manifest/v1",
   "version": "$uiMessagesVersion",
   "locales": [
-$entries
+    { "id": "${ours.nameWithoutExtension}", "file": "${ours.name}", "sha256": "$sha", "bytes": ${bytes.size} }
   ]
 }
 """
         )
-        logger.lifecycle("exportUiMessages → ${out.absolutePath} (${files.size} locale)")
+        logger.lifecycle("exportUiMessages → ${out.absolutePath} (1 locale)")
     }
 }
 
 tasks.named("build").configure { dependsOn(exportUiMessages) }
+
+// ADR 0018：界面文案走独立 npm 通道、不进语言包 JVM jar——aster-api 自带 classpath 副本，
+// 语言包 jar 只提供 lexicon SPI。jar 里再带一份 ui-messages/<locale>.json 与 api 的资源
+// 同名同路径，只会制造 classpath 顺序相关的资源遮蔽（审计 hi#77）。
+tasks.jar { exclude("ui-messages/**") }
 
 // 审计 hi#66：npm prepack 走 exportUiMessages 发布 @aster-cloud/ui-messages-hi——发布物
 // 必须先过 namespace 平价门禁（对齐 aster-lang-locales 的同名 dependsOn 模式），
