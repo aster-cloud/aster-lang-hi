@@ -7,6 +7,7 @@ import aster.core.lexicon.LexiconPlugin;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -21,6 +22,10 @@ import java.util.Set;
  * 句末符）由 core 的词法器/Canonicalizer 提供（ADR 0017 Phase 1/2），本包只贡献
  * 词法表数据。从 core builtin 抽出为独立 SPI 包后，运维可像 zh/de 一样**热插拔/卸载**
  * 印地语（上传/删除 jar，无需重启）。
+ *
+ * <p>诊断文案（错误码 → 印地语 message/help）以 {@code overlays/hi-IN/} 下两个 JSON 为唯一来源，
+ * 经 {@link #getOverlayResources()} 注册；core 的 {@code LexiconExporter} 把它们嵌入
+ * {@code lexicons.json}，aster-lang-ts 再从中生成诊断译文表。
  */
 public final class HiInPlugin implements LexiconPlugin {
 
@@ -33,6 +38,18 @@ public final class HiInPlugin implements LexiconPlugin {
     public Lexicon createLexicon() {
         String json = loadResource("lexicons/hi-IN.json");
         return DynamicLexicon.fromJsonString(json);
+    }
+
+    /**
+     * overlay 资源放在 {@code overlays/hi-IN/} 下：语言包 jar 常与 en/zh/de 同处一个 classpath，
+     * 资源路径若相同，按路径查找只会命中 classpath 上第一个 jar，本包的 overlay 会被遮蔽。
+     */
+    @Override
+    public Map<String, String> getOverlayResources() {
+        return Map.of(
+                "diagnosticMessages", "overlays/hi-IN/diagnostic-messages.json",
+                "diagnosticHelp", "overlays/hi-IN/diagnostic-help.json"
+        );
     }
 
     private String loadResource(String path) {
