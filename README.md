@@ -20,6 +20,16 @@ be loaded — and **hot-unloaded** — at runtime alongside `aster-lang-en` / `-
   Published as `@aster-cloud/ui-messages-hi` via `exportUiMessages`; **not**
   packaged into the jar (ADR 0018). This repo owns `hi-IN` only — no other
   locale's json may live in that directory.
+- `src/main/resources/overlays/hi-IN/diagnostic-{messages,help}.json` — Hindi
+  translations of every compiler diagnostic (message + help), registered through
+  `HiInPlugin.getOverlayResources()`. The English baseline is `aster-lang-ts`'s
+  `shared/error_codes.json`; the bundled test copy
+  `src/test/resources/diagnostics/error_codes.json` is compared byte-for-byte with
+  `aster-lang-core`'s copy by `verifyErrorCodesBaseline`, and
+  `HiInDiagnosticOverlayTest` requires full code coverage with the same
+  placeholders as English. `aster-lang-ts` regenerates its diagnostic table from
+  `lexicons.json`, so a new translation reaches the editor only after this pack is
+  released and `aster-lang-ts` is regenerated.
 
 Hindi equality / comparison use already-implemented keywords (`बराबर` = equals to,
 `से अधिक` = greater than, `से कम` = less than), so **no syntax transformers are

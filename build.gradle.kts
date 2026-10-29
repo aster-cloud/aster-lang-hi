@@ -162,8 +162,34 @@ tasks.register("verifyUiMessagesParity") {
     }
 }
 
+/**
+ * verifyErrorCodesBaseline：测试资源里的英文诊断码表副本
+ * （src/test/resources/diagnostics/error_codes.json）必须与真源逐字节一致。
+ * 真源是 aster-lang-ts 的 shared/error_codes.json，aster-lang-core 的
+ * src/test/resources/diagnostics/error_codes.json 是其逐字节副本；CI 总会嵌套检出 core，
+ * 故与 core 副本比对（-PerrorCodesBaseline 可覆盖）。缺失处置同 [backboneOrSkip]。
+ * 码表新增错误码时：复制真源到副本，并在 overlays/diagnostic-*.json 补齐译文
+ * （HiInDiagnosticOverlayTest 逐码校验覆盖面与占位符）。
+ */
+tasks.register("verifyErrorCodesBaseline") {
+    group = "verification"
+    description = "Ensure the bundled error_codes.json copy matches aster-lang-core's copy byte-for-byte"
+    val ours = file("src/test/resources/diagnostics/error_codes.json")
+    val baselineFile = resolveBackbone("errorCodesBaseline", "aster-lang-core/src/test/resources/diagnostics/error_codes.json")
+    doLast {
+        val baseline = backboneOrSkip(name, baselineFile, "aster-lang-core", "errorCodesBaseline") ?: return@doLast
+        if (!ours.readBytes().contentEquals(baseline.readBytes())) {
+            throw GradleException(
+                "verifyErrorCodesBaseline FAILED: ${ours.path} differs from ${baseline.absolutePath}.\n" +
+                    "Copy the baseline over the bundled copy and add hi-IN translations for any new codes."
+            )
+        }
+        logger.lifecycle("verifyErrorCodesBaseline: error_codes.json matches ${baseline.absolutePath} ✓")
+    }
+}
+
 tasks.named("check") {
-    dependsOn("verifyLexiconKeywordParity", "verifyUiMessagesParity")
+    dependsOn("verifyLexiconKeywordParity", "verifyUiMessagesParity", "verifyErrorCodesBaseline")
 }
 
 /**
