@@ -81,9 +81,9 @@ class HiInDiagnosticOverlayTest {
     }
 
     @Test
-    @DisplayName("英文码表副本含 115 个错误码")
+    @DisplayName("英文码表副本含 122 个错误码（含 lowering 的 E600–E606）")
     void baselineHasAllCodes() throws Exception {
-        assertThat(baseline()).hasSize(115).containsKeys("E050", "E069", "E800", "E807", "W800", "W801");
+        assertThat(baseline()).hasSize(122).containsKeys("E050", "E069", "E600", "E606", "E800", "E807", "W800", "W801");
     }
 
     @Test
