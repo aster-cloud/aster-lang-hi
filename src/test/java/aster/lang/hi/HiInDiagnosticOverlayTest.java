@@ -81,9 +81,9 @@ class HiInDiagnosticOverlayTest {
     }
 
     @Test
-    @DisplayName("英文码表副本含 136 个错误码（含 lowering 的 E600–E606、档案输入引用的 E708、W709、ADR 0059 策略包导出的 E730–E735 / E737–E739、ADR 0060 别名名字守卫的 E808 与 ADR 0055 的 E213 / E900）")
+    @DisplayName("英文码表副本含 138 个错误码（含 lowering 的 E600–E606、档案输入引用的 E708、W709、ADR 0059 策略包导出的 E730–E735 / E737–E739、ADR 0060 别名名字守卫的 E808、ADR 0055 的 E213 / E900 与 ADR 0056 修订 A6 的 E901 / W802）")
     void baselineHasAllCodes() throws Exception {
-        assertThat(baseline()).hasSize(136).containsKeys("E050", "E069", "E213", "E600", "E606", "E708", "W709", "E730", "E735", "E737", "E739", "E800", "E807", "E808", "E900", "W800", "W801");
+        assertThat(baseline()).hasSize(138).containsKeys("E050", "E069", "E213", "E600", "E606", "E708", "W709", "E730", "E735", "E737", "E739", "E800", "E807", "E808", "E900", "E901", "W800", "W801", "W802");
     }
 
     @Test
